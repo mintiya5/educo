@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom'; // Import useNavigate
+import { useNavigate } from 'react-router-dom';
 
 const PaymentPage = () => {
   const [name, setName] = useState('');
@@ -13,7 +13,7 @@ const PaymentPage = () => {
   const [loading, setLoading] = useState(false);
 
   const { user } = useAuth();
-  const navigate = useNavigate(); // Initialize navigate
+  const navigate = useNavigate();
 
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,7 +38,31 @@ const PaymentPage = () => {
 
     try {
       const last4 = cardNumber.slice(-4);
-      const { error: insertError } = await supabase
+      
+      // First, find the pending subscription
+      const { data: pendingSubscription, error: fetchError } = await supabase
+        .from('user_subscriptions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'pending')
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      if (!pendingSubscription) {
+        throw new Error('No pending subscription found');
+      }
+
+      // Update subscription status to active
+      const { error: updateError } = await supabase
+        .from('user_subscriptions')
+        .update({ status: 'active' })
+        .eq('id', pendingSubscription.id);
+
+      if (updateError) throw updateError;
+
+      // Save payment details
+      const { error: paymentError } = await supabase
         .from('payment_details')
         .insert({
           user_id: user.id,
@@ -47,15 +71,17 @@ const PaymentPage = () => {
           expiry,
         });
 
-      if (insertError) throw insertError;
+      if (paymentError) throw paymentError;
 
       setSuccess(true);
+      
+      // Short delay to show success message
       setTimeout(() => {
-        navigate('/activities');  // Navigate to /activities route after success
-      }, 2000);
-    } catch (err) {
-      console.error(err);
-      setError('Failed to save payment details.');
+        navigate('/activities');
+      }, 1500);
+    } catch (err: any) {
+      console.error('Error processing payment:', err);
+      setError(err.message || 'Failed to process payment');
     } finally {
       setLoading(false);
     }
@@ -73,7 +99,7 @@ const PaymentPage = () => {
         )}
         {success && (
           <div className="bg-green-100 text-green-700 px-4 py-2 rounded mb-4 text-sm">
-            Payment successful!
+            Payment successful! Redirecting to activities...
           </div>
         )}
 
